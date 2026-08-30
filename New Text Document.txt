@@ -1,0 +1,2 @@
+cd /d "D:\PENGAWAS\SEMESTER 2\RAPOR PENDIDIKAN\supervisi-guru"
+py -m uvicorn main:app --reload

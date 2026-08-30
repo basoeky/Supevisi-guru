@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Supervisi Guru V.1</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+	<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <style>
+        .menu-active { 
+            background-color: #2563eb; 
+            border-left: 4px solid #facc15; 
+            color: #ffffff; 
+            font-weight: bold; 
+        }
+        .hidden-section { display: none; }
+        .submenu { max-height: 0; overflow: hidden; transition: max-height 0.35s ease, opacity 0.3s ease; opacity: 0; }
+        .submenu.open { max-height: 300px; opacity: 1; }
+        .arrow-icon { transition: transform 0.3s ease; display: inline-block; }
+        .arrow-icon.rotated { transform: rotate(90deg); }
+        #modal-overlay { transition: opacity 0.25s ease; }
+        #modal-overlay.hidden { opacity: 0; pointer-events: none; }
+        #modal-overlay:not(.hidden) { opacity: 1; pointer-events: auto; }
+        .modal-success #modal-header { background: linear-gradient(135deg, #10b981, #059669); }
+        .modal-success #modal-title { color: #fff; }
+        .modal-success #modal-btn { background: #10b981; }
+        .modal-success #modal-btn:hover { background: #059669; }
+        .modal-warning #modal-header { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .modal-warning #modal-title { color: #fff; }
+        .modal-warning #modal-btn { background: #f59e0b; }
+        .modal-warning #modal-btn:hover { background: #d97706; }
+        .modal-danger #modal-header { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .modal-danger #modal-title { color: #fff; }
+        .modal-danger #modal-btn { background: #ef4444; }
+        .modal-danger #modal-btn:hover { background: #dc2626; }
+        .modal-info #modal-header { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .modal-info #modal-title { color: #fff; }
+
+        /* Style untuk tombol PDF yang non-aktif */
+        .btn-pdf-disabled {
+            background-color: #9ca3af !important;
+            cursor: not-allowed !important;
+            opacity: 0.6;
+        }
+
+        /* Style untuk menu sidebar yang terkunci / disabled */
+        .menu-disabled {
+            opacity: 0.4 !important;
+            cursor: not-allowed !important;
+            pointer-events: none !important;
+            background-color: transparent !important;
+        }
+
+        /* Menyembunyikan elemen non-cetak saat mencetak file PDF */
+        @media print {
+            .no-print, button, nav, aside, #modal-overlay, #alert {
+                display: none !important;
+            }
+            body {
+                background: #fff !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            main {
+                padding: 0 !important;
+                margin: 0 !important;
+                overflow: visible !important;
+            }
+            .content-section {
+                display: none !important;
+            }
+            .content-section.print-target {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+        }
+    </style>
+    <script>
+        function downloadPDF(sectionId, namaFile) {
+            const originalTitle = document.title;
+            document.title = namaFile + "_" + new Date().toISOString().slice(0, 10);
+            
+            document.querySelectorAll('.content-section').forEach(sec => {
+                sec.classList.remove('print-target');
+            });
+
+            const targetSection = document.getElementById(sectionId);
+            if (targetSection) {
+                targetSection.classList.add('print-target');
+            }
+
+            setTimeout(() => {
+                window.print();
+                document.title = originalTitle;
+                if (targetSection) {
+                    targetSection.classList.remove('print-target');
+                }
+            }, 100);
+        }
+		function downloadExcel(tableId, fileName) {
+    let table = document.getElementById(tableId);
+    if (!table) {
+        table = document.querySelector('#kesimpulan table');
+    }
+
+    if (!table) {
+        showModal('Tabel data tidak ditemukan!', 'Error', 'danger');
+        return;
+    }
+    
+    // 1. Konversi tabel HTML ke Worksheet SheetJS
+    const wb = XLSX.utils.table_to_book(table, { sheet: "Rekap Kesimpulan" });
+    const ws = wb.Sheets["Rekap Kesimpulan"];
+
+    // 2. Definisi Style Border (Garis Tipis Hitam)
+    const borderStyle = {
+        top: { style: "thin", color: { rgb: "000000" } },
+        bottom: { style: "thin", color: { rgb: "000000" } },
+        left: { style: "thin", color: { rgb: "000000" } },
+        right: { style: "thin", color: { rgb: "000000" } }
+    };
+
+    // 3. Iterasi seluruh sel di sheet dan terapkan border
+    for (let cell in ws) {
+        if (cell[0] === '!') continue; // Lewati properti internal SheetJS seperti !ref atau !merges
+        
+        if (!ws[cell].s) ws[cell].s = {};
+        ws[cell].s.border = borderStyle;
+    }
+
+    // 4. Unduh File Excel dengan Border
+    const filenameWithDate = fileName + '_' + new Date().toISOString().slice(0, 10) + '.xlsx';
+    XLSX.writeFile(wb, filenameWithDate);
+}
+
+
+
+
+
+
+    </script>
+</head>
+<body class="bg-gray-50 flex h-screen text-gray-800 font-sans">
+
+    <!-- Sidebar -->
+    <aside class="w-64 bg-blue-900 text-white flex flex-col h-full shadow-lg overflow-y-auto z-10 flex-shrink-0 no-print">
+        <div class="p-5 font-bold text-2xl border-b border-blue-800 text-center tracking-wide">
+            Supervisi <span class="text-blue-400">Guru V.1</span>
+        </div>
+        <nav class="flex-1 py-3 text-xl">
+            <button onclick="nav('dashboard', this)" class="menu-btn w-full text-left py-3 px-5 hover:bg-blue-800 menu-active">🏠 Dashboard</button>
+            <button onclick="nav('identitas', this)" class="menu-btn w-full text-left py-3 px-5 hover:bg-blue-800">👤 Identitas Guru</button>
+            
+            <!-- Pra Observasi (toggle) - Restricted -->
+            <button onclick="toggleSubmenu('pra-sub', this)" class="menu-btn restricted-menu menu-disabled w-full text-left py-3 px-5 hover:bg-blue-800 mt-2 font-bold flex justify-between items-center">
+                <span>📋 Pra Observasi</span>
+                <span class="arrow-icon" id="arrow-pra-sub">▶</span>
+            </button>
+            <div id="pra-sub" class="submenu">
+                <button onclick="nav('sup-admin', this)" class="menu-btn restricted-menu menu-disabled w-full text-left py-2 px-8 hover:bg-blue-800 pl-10">Supervisi Administrasi</button>
+                <button onclick="nav('sup-atp', this)" class="menu-btn restricted-menu menu-disabled w-full text-left py-2 px-8 hover:bg-blue-800 pl-10">Penelaah ATP</button>
+                <button onclick="nav('sup-modul', this)" class="menu-btn restricted-menu menu-disabled w-full text-left py-2 px-8 hover:bg-blue-800 pl-10">Penelaah Modul Ajar</button>
+            </div>
+
+            <!-- Observasi - Restricted -->
+            <button onclick="nav('observasi', this)" class="menu-btn restricted-menu menu-disabled w-full text-left py-3 px-5 hover:bg-blue-800 mt-2 font-bold">👁️ Observasi</button>
+            
+            <!-- Pasca Observasi (toggle) - Restricted -->
+            <button onclick="toggleSubmenu('pasca-sub', this)" class="menu-btn restricted-menu menu-disabled w-full text-left py-3 px-5 hover:bg-blue-800 mt-2 font-bold flex justify-between items-center">
+                <span>📝 Pasca Observasi</span>
+                <span class="arrow-icon" id="arrow-pasca-sub">▶</span>
+            </button>
+            <div id="pasca-sub" class="submenu">
+                <button onclick="nav('refleksi', this)" class="menu-btn restricted-menu menu-disabled w-full text-left py-2 px-8 hover:bg-blue-800 pl-10">Refleksi</button>
+                <button onclick="nav('umpan-balik', this)" class="menu-btn restricted-menu menu-disabled w-full text-left py-2 px-8 hover:bg-blue-800 pl-10">Umpan Balik</button>
+                <button onclick="nav('tindak-lanjut', this)" class="menu-btn restricted-menu menu-disabled w-full text-left py-2 px-8 hover:bg-blue-800 pl-10">Tindak Lanjut</button>
+            </div>
+
+            <!-- Kesimpulan - Restricted -->
+            <button onclick="nav('kesimpulan', this)" class="menu-btn restricted-menu menu-disabled w-full text-left py-3 px-5 hover:bg-blue-800 mt-2 font-bold border-t border-blue-800">📊 Kesimpulan</button>
+        </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 overflow-y-auto p-8 relative">
+        <!-- Global Alert -->
+        <div id="alert" class="hidden absolute top-4 right-8 bg-green-500 text-white px-4 py-2 rounded shadow-md transition-opacity no-print">Berhasil disimpan!</div>
+        
+        <!-- Dashboard -->
+        <section id="dashboard" class="content-section">
+            <h2 class="text-2xl font-bold mb-6 text-gray-700">Dashboard Supervisi</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="bg-white p-6 rounded-lg shadow border-t-4 border-blue-500">
+                    <h3 class="text-xl font-semibold text-gray-500 uppercase">Total Guru</h3>
+                    <p class="text-3xl font-bold text-blue-600 mt-2" id="dash-total-guru">0</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow border-t-4 border-green-500">
+                    <h3 class="text-xl font-semibold text-gray-500 uppercase">Rata-rata Skor Observasi</h3>
+                    <p class="text-3xl font-bold text-green-600 mt-2"><span id="dash-avg-obs">0</span>%</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow border-t-4 border-purple-500">
+                    <h3 class="text-xl font-semibold text-gray-500 uppercase">Total Supervisi Selesai</h3>
+                    <p class="text-3xl font-bold text-purple-600 mt-2" id="dash-total-sup">0</p>
+                </div>
+            </div>
+
+            <!-- Tabel Daftar Guru -->
+            <div class="bg-white p-6 rounded-lg shadow mt-6">
+                <h3 class="text-xl font-bold mb-4 text-gray-700">Daftar Guru yang Disupervisi</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xl">
+                        <thead>
+                            <tr class="bg-blue-900 text-white">
+                                <th class="p-3 text-center">No</th>
+                                <th class="p-3">Nama</th>
+                                <th class="p-3">NIP</th>
+                                <th class="p-3">Kelas</th>
+                                <th class="p-3">Bidang Studi</th>
+                                <th class="p-3 text-center">Status</th>
+                                <th class="p-3 text-center">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashboard-table-body">
+                            <tr><td colspan="7" class="p-4 text-center text-gray-400">Memuat data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Identitas Guru -->
+        <section id="identitas" class="content-section hidden-section">
+            <h2 class="text-2xl font-bold mb-6 text-gray-700">Identitas Guru</h2>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <form id="form-identitas" onsubmit="submitIdentitas(event)">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xl font-medium text-gray-700">Nama Guru</label>
+                            <input type="text" id="guru_nama" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                        </div>
+                        <div>
+                            <label class="block text-xl font-medium text-gray-700">NIP</label>
+                            <input type="text" id="guru_nip" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                        </div>
+                        <div>
+                            <label class="block text-xl font-medium text-gray-700">Sekolah</label>
+                            <input type="text" id="guru_sekolah" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                        </div>
+                        <div>
+                            <label class="block text-xl font-medium text-gray-700">Jenjang</label>
+                            <select id="guru_jenjang" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2 bg-white">
+                                <option value="">-- Pilih Jenjang --</option>
+                                <option value="SD">SD</option>
+                                <option value="SMP">SMP</option>
+                                <option value="SMA">SMA</option>
+                                <option value="SMK">SMK</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xl font-medium text-gray-700">Mata Pelajaran</label>
+    <select id="guru_mapel" onchange="toggleMapelLainnya(this)" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2 bg-white">
+        <option value="">-- Pilih Mata Pelajaran --</option>
+        <option value="Pendidikan Agama Islam">Pendidikan Agama Islam</option>
+        <option value="Pendidikan Agama Kristen">Pendidikan Agama Kristen</option>
+        <option value="Pendidikan Pancasila">Pendidikan Pancasila</option>
+        <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+        <option value="Matematika">Matematika</option>
+        <option value="IPAS">IPAS</option>
+		 <option value="IPA">IPA</option>
+		 <option value="IPS">IPS</option>
+        <option value="PJOK">PJOK</option>
+        <option value="Seni Rupa">Seni Rupa</option>
+        <option value="Bahasa Inggris">Bahasa Inggris</option>
+        <option value="Muatan Lokal / Bahasa Daerah">Muatan Lokal / Bahasa Daerah</option>
+   
+    </select>
+							
+							
+               
+                        </div>
+                        <div>
+    <label class="block text-xl font-medium text-gray-700">Kelas/Semester</label>
+    <select id="guru_kelas" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2 bg-white">
+        <option value="">-- Pilih Kelas/Semester --</option>
+        <option value="Kelas 1/1">Kelas 1/1</option>
+		<option value="Kelas 1/2">Kelas 1/2</option>
+        <option value="Kelas 2/1">Kelas 2/1</option>
+		<option value="Kelas 2/2">Kelas 2/2</option>
+        <option value="Kelas 3/1">Kelas 3/1</option>
+		<option value="Kelas 3/3">Kelas 3/2</option>
+        <option value="Kelas 4/1">Kelas 4/1</option>
+		<option value="Kelas 4/2">Kelas 4/2</option>
+        <option value="Kelas 5/1">Kelas 5/1</option>
+		<option value="Kelas 5/2">Kelas 5/2</option>
+        <option value="Kelas 6/1">Kelas 6/1</option>
+		<option value="Kelas 6/2">Kelas 6/2</option>
+        <option value="Kelas 7/1">Kelas 7/1</option>
+		<option value="Kelas 7/2">Kelas 7/2</option>
+        <option value="Kelas 8/1">Kelas 8/1</option>
+		<option value="Kelas 8/2">Kelas 8/2</option>
+        <option value="Kelas 9/1">Kelas 9/1</option>
+		<option value="Kelas 9/2">Kelas 9/2</option>
+    </select>
+                        </div>
+                    </div>
+                    <div class="mt-6">
+                        <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700">Simpan Identitas</button>
+                    </div>
+                </form>
+                <div id="guru_id_display" class="mt-4 text-xl text-green-600 hidden">ID Guru Aktif: <span id="current_guru_id" class="font-bold"></span></div>
+            </div>
+        </section>
+
+        <!-- Template Section for Instruments -->
+        <section id="sup-admin" class="content-section hidden-section"></section>
+        <section id="sup-atp" class="content-section hidden-section"></section>
+        <section id="sup-modul" class="content-section hidden-section"></section>
+        <section id="observasi" class="content-section hidden-section"></section>
+
+        <!-- Pasca Observasi: Refleksi -->
+        <section id="refleksi" class="content-section hidden-section">
+            <h2 class="text-2xl font-bold mb-6 text-gray-700">Refleksi Guru</h2>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <form onsubmit="submitRefleksi(event)">
+                    <label class="block text-xl font-medium text-gray-700 mb-2">Tuliskan hasil refleksi guru pasca observasi:</label>
+                    <textarea id="refleksi_text" rows="6" class="w-full border rounded-md p-3" required></textarea>
+                    <button type="submit" class="mt-4 bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700">Kirim Refleksi & Buat Umpan Balik</button>
+                </form>
+            </div>
+        </section>
+
+        <!-- Pasca Observasi: Umpan Balik -->
+        <section id="umpan-balik" class="content-section hidden-section">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-gray-700">Umpan Balik Otomatis</h2>
+                <button onclick="downloadPDF('umpan-balik', 'Umpan_Balik')" class="no-print flex items-center gap-2 bg-purple-700 hover:bg-purple-800 text-white font-semibold py-2 px-4 rounded-lg shadow transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    <span>Download PDF</span>
+                </button>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <p class="text-gray-500 mb-4 text-xl no-print">Umpan balik dihasilkan secara otomatis berdasarkan skor observasi dan teks refleksi.</p>
+                <div id="umpan_balik_text" class="p-4 bg-blue-50 border border-blue-200 rounded-md whitespace-pre-wrap">Belum ada umpan balik. Harap isi identitas, selesaikan observasi, dan kirim refleksi terlebih dahulu.</div>
+            </div>
+        </section>
+
+        <!-- Pasca Observasi: Tindak Lanjut -->
+        <section id="tindak-lanjut" class="content-section hidden-section">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-gray-700">Tindak Lanjut Otomatis</h2>
+                <button onclick="downloadPDF('tindak-lanjut', 'Tindak_Lanjut')" class="no-print flex items-center gap-2 bg-purple-700 hover:bg-purple-800 text-white font-semibold py-2 px-4 rounded-lg shadow transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    <span>Download PDF</span>
+                </button>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <p class="text-gray-500 mb-4 text-xl no-print">Rekomendasi tindak lanjut berdasarkan hasil keseluruhan.</p>
+                <div id="tindak_lanjut_text" class="p-4 bg-green-50 border border-green-200 rounded-md whitespace-pre-wrap">Belum ada tindak lanjut.</div>
+            </div>
+        </section>
+
+        <!-- Kesimpulan -->
+        <section id="kesimpulan" class="content-section hidden-section">
+            <<!-- Kesimpulan Header & Actions -->
+<div class="flex items-center justify-between mb-6">
+    <h2 class="text-2xl font-bold text-gray-700">Rekapitulasi Kesimpulan Supervisi</h2>
+    
+    <!-- Group Tombol Aksi (Excel & PDF) -->
+    <div class="flex items-center gap-3 no-print">
+        <!-- Tombol Download Excel -->
+        <button onclick="downloadExcel('kesimpulan-table', 'Rekapitulasi_Kesimpulan_Supervisi')" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-4 rounded-lg shadow transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            <span>Download Excel</span>
+        </button>
+
+        <!-- Tombol Download PDF -->
+        <button onclick="downloadPDF('kesimpulan', 'Kesimpulan_Supervisi')" class="flex items-center gap-2 bg-purple-700 hover:bg-purple-800 text-white font-semibold py-2 px-4 rounded-lg shadow transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            <span>Download PDF</span>
+        </button>
+    </div>
+</div>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow overflow-x-auto">
+                <div class="flex justify-between items-center mb-4 no-print">
+                    <span class="text-xl text-gray-500">Data rekapitulasi seluruh guru yang disupervisi</span>
+                    <button onclick="loadKesimpulan()" class="bg-gray-800 text-white px-4 py-2 rounded shadow text-xl hover:bg-gray-700">🔄 Refresh Data</button>
+                </div>
+                
+                <table id="kesimpulan-table" class="w-full text-xl text-left border-collapse border border-gray-300">
+                    <thead>
+                        <tr class="bg-blue-900 text-white text-center font-bold">
+                            <th rowspan="3" class="p-2 border border-gray-400">No.</th>
+                            <th rowspan="3" class="p-2 border border-gray-400">Nama Guru</th>
+                            <th rowspan="3" class="p-2 border border-gray-400">NIP</th>
+                            <th rowspan="3" class="p-2 border border-gray-400">Kelas / Semester</th>
+                            <th colspan="9" class="p-2 border border-gray-400">PRA OBSERVASI</th>
+                            <th colspan="3" class="p-2 border border-gray-400">OBSERVASI</th>
+                            <th colspan="3" class="p-2 border border-gray-400">PASCA OBSERVASI</th>
+                            <th rowspan="3" class="p-2 border border-gray-400 min-w-[250px]">Kesimpulan (Otomatis)</th>
+                        </tr>
+                        <tr class="bg-blue-800 text-white text-center font-bold">
+                            <th colspan="3" class="p-2 border border-gray-400">Administrasi</th>
+                            <th colspan="3" class="p-2 border border-gray-400">Penelaah ATP</th>
+                            <th colspan="3" class="p-2 border border-gray-400">Penelaah Modul Ajar</th>
+                            <th colspan="3" class="p-2 border border-gray-400">Observasi Pembelajaran</th>
+                            <th rowspan="2" class="p-2 border border-gray-400">Refleksi</th>
+                            <th rowspan="2" class="p-2 border border-gray-400">Umpan Balik</th>
+                            <th rowspan="2" class="p-2 border border-gray-400">Tindak Lanjut</th>
+                        </tr>
+                        <tr class="bg-blue-700 text-white text-center font-semibold">
+                            <th class="p-1 border border-gray-400">Skor</th>
+                            <th class="p-1 border border-gray-400">%</th>
+                            <th class="p-1 border border-gray-400">Predikat</th>
+                            <th class="p-1 border border-gray-400">Skor</th>
+                            <th class="p-1 border border-gray-400">%</th>
+                            <th class="p-1 border border-gray-400">Predikat</th>
+                            <th class="p-1 border border-gray-400">Skor</th>
+                            <th class="p-1 border border-gray-400">%</th>
+                            <th class="p-1 border border-gray-400">Predikat</th>
+                            <th class="p-1 border border-gray-400">Skor</th>
+                            <th class="p-1 border border-gray-400">%</th>
+                            <th class="p-1 border border-gray-400">Predikat</th>
+                        </tr>
+                    </thead>
+                    <tbody id="kesimpulan-table-body">
+                        <tr>
+                            <td colspan="20" class="p-4 text-center text-gray-400">Memuat data kesimpulan...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+		
+		
+<!-- Footer Halaman -->
+<!-- Footer Fixed di Bawah Layar -->
+<footer class="fixed bottom-0 left-0 z-50 w-full bg-blue-900 border-t border-gray-200 p-3 text-center text-xl text-white shadow-md no-print md:pl-64">
+    © 2026. Basuki, S.Kom. Pengawas TK/SD Kec. Perhentian Raja
+</footer>
+
+    </main>
+    <script>
+        // ===== MODAL SYSTEM =====
+        function showModal(message, title, type) {
+            title = title || 'Perhatian';
+            type = type || 'warning';
+            
+            var icons = { success: '✅', warning: '⚠️', danger: '❌', info: 'ℹ️' };
+            var overlay = document.getElementById('modal-overlay');
+            var icon = document.getElementById('modal-icon');
+            var titleEl = document.getElementById('modal-title');
+            var msgEl = document.getElementById('modal-message');
+            var btn = document.getElementById('modal-btn');
+            
+            icon.textContent = icons[type] || '⚠️';
+            titleEl.textContent = title;
+            msgEl.textContent = message;
+            btn.textContent = 'Tutup';
+            
+            overlay.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center modal-' + type;
+        }
+
+        function showModalConfirm(message, title, onConfirm) {
+            title = title || 'Konfirmasi';
+            
+            var overlay = document.getElementById('modal-overlay');
+            var icon = document.getElementById('modal-icon');
+            var titleEl = document.getElementById('modal-title');
+            var msgEl = document.getElementById('modal-message');
+            var btn = document.getElementById('modal-btn');
+            
+            icon.textContent = '❓';
+            titleEl.textContent = title;
+            msgEl.textContent = message;
+            btn.textContent = 'Ya, Lanjutkan';
+            btn.className = 'bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 font-semibold text-xl mr-2 transition';
+            btn.onclick = function() {
+                closeModal();
+                if (onConfirm) onConfirm();
+            };
+            
+            overlay.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center modal-danger';
+            
+            var btnWrap = btn.parentElement;
+            var existingCancel = document.getElementById('modal-cancel-btn');
+            if (!existingCancel) {
+                var cancelBtn = document.createElement('button');
+                cancelBtn.id = 'modal-cancel-btn';
+                cancelBtn.textContent = 'Batal';
+                cancelBtn.className = 'bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400 font-semibold text-xl transition';
+                cancelBtn.onclick = closeModal;
+                btnWrap.insertBefore(cancelBtn, btn);
+            }
+        }
+
+        function closeModal() {
+            var overlay = document.getElementById('modal-overlay');
+            overlay.className = 'hidden';
+            
+            var btn = document.getElementById('modal-btn');
+            btn.textContent = 'Tutup';
+            btn.className = 'bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold text-xl transition';
+            btn.onclick = closeModal;
+            
+            var cancelBtn = document.getElementById('modal-cancel-btn');
+            if (cancelBtn) cancelBtn.remove();
+        }
+
+        // ===== DATA STATE & MENU CONTROLLER =====
+        var activeGuruId = null;
+
+        // FUNGSI UNTUK MENGAKTIFKAN MENU SETELAH IDENTITAS DISIMPAN
+        function unlockMenus() {
+            var restrictedButtons = document.querySelectorAll('.restricted-menu');
+            restrictedButtons.forEach(function(btn) {
+                btn.classList.remove('menu-disabled');
+            });
+        }
+
+        // ===== INSTRUMEN DATA =====
+        var instrumenData = {
+            'administrasi': {
+                id: 'sup-admin',
+                title: 'Supervisi Administrasi Pembelajaran',
+                maxScore: 34,
+                options: [{v:0, l:'Tidak Ada (0)'},{v:1, l:'Ada Tidak Sesuai (1)'},{v:2, l:'Ada Sesuai (2)'}],
+                items: [
+                    "Kalender Pendidikan", "Rincian Minggu Efektif", "Program Tahunan", "Program Semester",
+                    "Analisis Capaian Pembelajaran", "Alur Tujuan Pembelajaran", "Modul Ajar", "KKTP",
+                    "Bank Soal/Rubrik", "Jadwal Tatap Muka", "Agenda Mengajar", "Daftar Nilai",
+                    "Absensi Siswa", "Jurnal Mengajar", "Media Pembelajaran", "Buku Pegangan Guru", "Buku Teks Siswa"
+                ]
+            },
+            'atp': {
+                id: 'sup-atp',
+                title: 'Penelaahan Alur Tujuan Pembelajaran (ATP)',
+                maxScore: 24,
+                options: [{v:2, l:'Ya Sesuai (2)'}, {v:1, l:'Tidak Sesuai (1)'}, {v:0, l:'Tidak Ada (0)'}],
+                items: [
+                    "Identitas ATP", "Peta Kompetensi", "Capaian Pembelajaran", "Tujuan Pembelajaran",
+                    "ATP mencakup komponen kompetensi", "ATP mencakup komponen konten", "ATP mencakup komponen variasi",
+                    "Menggambarkan urutan pengembangan kompetensi", "Tahapan pembelajaran yang linear",
+                    "Menggambarkan tahapan perkembangan antarfase", "Identifikasi elemen Profil Pelajar Pancasila", "Alur Tujuan Pembelajaran Lengkap"
+                ]
+            },
+            'modul_ajar': {
+                id: 'sup-modul',
+                title: 'Penelaahan Modul Ajar',
+                maxScore: 48,
+                options: [{v:0, l:'Tidak Ada (0)'}, {v:1, l:'Kurang Lengkap (1)'}, {v:2, l:'Sudah Lengkap (2)'}],
+                items: [
+                    "Identitas (Nama penyusun, institusi, tahun, kelas, waktu)", "Kompetensi Awal", "Dimensi Profil Pelajar Pancasila",
+                    "Kesesuaian dan ketepatan fasilitas (Sarpras)", "Kesesuaian materi dan sumber bahan ajar", "Target Peserta Didik",
+                    "Model pembelajaran tatap muka/blended", "Ketepatan Tujuan Pembelajaran", "Pemahaman Bermakna", "Pertanyaan Pemantik",
+                    "Persiapan Pembelajaran", "Pendahuluan: Motivasi dan Apersepsi", "Inti: Mengamati, mendengar, menyimak",
+                    "Inti: Merumuskan masalah (bertanya)", "Inti: Eksplorasi/Mengumpulkan informasi", "Inti: Menyimpulkan/Mensintesa",
+                    "Inti: Mengomunikasikan", "Penutup: Merangkum", "Penutup: Merefleksi", "Penutup: Umpan balik",
+                    "Penilaian: Bentuk, teknik dan instrumen", "Penilaian Sikap", "Penilaian Pengetahuan", "Penilaian Keterampilan"
+                ]
+            },
+            'observasi': {
+                id: 'observasi',
+                title: 'Observasi Pelaksanaan Pembelajaran',
+                maxScore: 76,
+                options: [{v:0, l:'Tidak/Kurang (0)'}, {v:1, l:'Cukup/Sebagian (1)'}, {v:2, l:'Ya/Sesuai (2)'}],
+                items: [
+                    "Menyiapkan fisik dan psikis peserta didik", "Menyampaikan rencana kegiatan", "Mengajukan pertanyaan menantang",
+                    "Menyampaikan manfaat materi", "Menyampaikan kompetensi", "Mengaitkan materi sebelumnya", "Mendemonstrasikan materi",
+                    "Menyesuaikan materi dengan tujuan", "Mengkaitkan materi dengan Iptek/kehidupan", "Menyajikan pembahasan dengan tepat",
+                    "Menyajikan sistematis", "Pembelajaran sesuai kompetensi", "Menumbuhkan partisipasi bertanya", "Menumbuhkan partisipasi berpendapat",
+                    "Mengembangkan keterampilan", "Pembelajaran kontekstual", "Sesuai alokasi waktu", "Mengasah Creativity",
+                    "Mengasah Critical Thinking", "Mengasah Communication", "Mengasah Collaboration", "Suasana kelas kondusif",
+                    "Disiplin positif", "Penggunaan sumber belajar bervariasi", "Penggunaan media pembelajaran", "Melibatkan peserta didik pemanfaatan sumber",
+                    "Melibatkan peserta didik pemanfaatan media", "Kesan menarik", "Bahasa lisan jelas", "Bahasa tulis baik",
+                    "Membimbing merangkum materi", "Aktivitas meningkatkan keterampilan mengajar", "Merefleksikan praktik pengajaran",
+                    "Penerapan cara/pendekatan baru", "Arahan kegiatan/tugas", "Penilaian Sikap", "Penilaian Pengetahuan", "Penilaian Keterampilan"
+                ]
+            }
+        };
+
+        // ===== NAVIGATION =====
+        function nav(sectionId, btn) {
+            if (btn && btn.classList.contains('menu-disabled')) return;
+
+            document.querySelectorAll('.content-section').forEach(function(el) { el.classList.add('hidden-section'); });
+            document.getElementById(sectionId).classList.remove('hidden-section');
+            
+            document.querySelectorAll('.menu-btn').forEach(function(el) { el.classList.remove('menu-active'); });
+            if (btn) btn.classList.add('menu-active');
+        }
+
+        // ===== SUBMENU TOGGLE =====
+        function toggleSubmenu(subId, btn) {
+            if (btn && btn.classList.contains('menu-disabled')) return;
+
+            var submenu = document.getElementById(subId);
+            var arrow = document.getElementById('arrow-' + subId);
+            submenu.classList.toggle('open');
+            arrow.classList.toggle('rotated');
+        }
+
+        // ===== GENERATE FORMS =====
+        function generateForm(key) {
+            const data = instrumenData[key];
+            const section = document.getElementById(data.id);
+            
+            let itemsHtml = data.items.map((item, index) => {
+                let radioHtml = data.options.map(opt => {
+                    return '<label class="inline-flex items-center gap-1 cursor-pointer bg-gray-100 hover:bg-blue-50 rounded-full px-3 py-1 text-xl border border-gray-300 transition whitespace-nowrap">' +
+                        '<input type="radio" name="ans-' + key + '-' + index + '" value="' + opt.v + '" class="ans-' + key + '" data-idx="' + index + '" onchange="calcScore(\'' + key + '\', ' + index + ')">' +
+                        '<span class="font-bold text-blue-700">' + opt.v + '</span>' +
+                        '<span class="text-gray-600">' + opt.l.split(' (')[0] + '</span>' +
+                    '</label>';
+                }).join(' ');
+
+                return '<tr class="border-b hover:bg-gray-50">' +
+                    '<td class="p-3 text-center font-bold text-xl">' + (index + 1) + '</td>' +
+                    '<td class="p-3 text-xl">' + item + '</td>' +
+                    '<td class="p-3"><div class="flex items-center gap-2 flex-nowrap">' + radioHtml + '</div></td>' +
+                    '<td class="p-3 text-center"><span id="nilai-' + key + '-' + index + '" class="inline-block bg-gray-200 text-gray-600 font-bold rounded-full w-8 h-8 leading-8 text-center text-xl">0</span></td>' +
+                '</tr>';
+            }).join('');
+
+            section.innerHTML = 
+                '<div class="flex items-center justify-between mb-4">' +
+                    '<h2 class="text-2xl font-bold text-gray-700">' + data.title + '</h2>' +
+                    '<button id="pdf-btn-' + key + '" disabled onclick="downloadPDF(\'' + data.id + '\', \'' + data.title.replace(/\s+/g, '_') + '\')" class="no-print flex items-center gap-2 bg-purple-700 hover:bg-purple-800 text-white font-semibold py-2 px-4 rounded-lg shadow transition btn-pdf-disabled">' +
+                        '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>' +
+                        '<span>Download PDF</span>' +
+                    '</button>' +
+                '</div>' +
+                '<div class="bg-white p-6 rounded-lg shadow">' +
+                    '<div class="overflow-x-auto">' +
+                        '<table class="w-full text-left border-collapse">' +
+                            '<thead><tr class="bg-blue-900 text-white">' +
+                                '<th class="p-3 w-10 text-center">No</th>' +
+                                '<th class="p-3">Aspek yang Dinilai</th>' +
+                                '<th class="p-3 w-80 text-center">Pilih Skor</th>' +
+                                '<th class="p-3 w-16 text-center">Nilai</th>' +
+                            '</tr></thead>' +
+                            '<tbody>' + itemsHtml + '</tbody>' +
+                        '</table>' +
+                    '</div>' +
+                    '<div class="mt-6 flex items-center justify-between bg-gray-100 p-4 rounded border">' +
+                        '<div>' +
+                            '<p class="text-xl text-gray-600">Total Skor: <span id="skor-' + key + '" class="font-bold text-xl text-black">0</span> / ' + data.maxScore + '</p>' +
+                            '<p class="text-xl text-gray-600">Nilai Akhir: <span id="persen-' + key + '" class="font-bold text-xl text-black">0%</span></p>' +
+                            '<p class="text-xl text-gray-600">Predikat: <span id="predikat-' + key + '" class="font-bold text-blue-600">-</span></p>' +
+                        '</div>' +
+                        '<button onclick="submitInstrumen(\'' + key + '\')" class="no-print bg-blue-600 text-white px-6 py-2 rounded shadow hover:bg-blue-700 font-bold">Simpan Penilaian</button>' +
+                    '</div>' +
+                '</div>';
+        }
+
+        Object.keys(instrumenData).forEach(generateForm);
+
+        // ===== CALC SCORE =====
+        function calcScore(key, idx) {
+            const data = instrumenData[key];
+            const radios = document.querySelectorAll('.ans-' + key);
+            let total = 0;
+            radios.forEach(function(r) { if (r.checked) total += parseInt(r.value || 0); });
+            
+            var badge = document.getElementById('nilai-' + key + '-' + idx);
+            if (badge) {
+                var checkedRadio = document.querySelector('input[name="ans-' + key + '-' + idx + '"]:checked');
+                var val = checkedRadio ? parseInt(checkedRadio.value) : 0;
+                badge.innerText = val;
+                if (val === 0) {
+                    badge.className = 'inline-block font-bold rounded-full w-8 h-8 leading-8 text-center text-xl bg-red-100 text-red-700';
+                } else if (val === 1) {
+                    badge.className = 'inline-block font-bold rounded-full w-8 h-8 leading-8 text-center text-xl bg-yellow-100 text-yellow-700';
+                } else {
+                    badge.className = 'inline-block font-bold rounded-full w-8 h-8 leading-8 text-center text-xl bg-green-100 text-green-700';
+                }
+            }
+
+            var persen = (total / data.maxScore) * 100;
+            var predikat = "Kurang";
+            if (persen >= 91) predikat = "Sangat Baik";
+            else if (persen >= 81) predikat = "Baik";
+            else if (persen >= 71) predikat = "Cukup";
+
+            document.getElementById('skor-' + key).innerText = total;
+            document.getElementById('persen-' + key).innerText = persen.toFixed(2) + '%';
+            document.getElementById('predikat-' + key).innerText = predikat;
+        }
+
+        // ===== API: DASHBOARD =====
+        async function loadDashboard() {
+            try {
+                var res = await fetch('/api/dashboard');
+                var data = await res.json();
+                document.getElementById('dash-total-guru').innerText = data.total_guru;
+                document.getElementById('dash-avg-obs').innerText = data.rata_rata_observasi;
+                document.getElementById('dash-total-sup').innerText = data.total_supervisi;
+                renderDashboardTable(data.guru_list || []);
+            } catch (e) { console.error("Error loading dashboard", e); }
+        }
+
+        function renderDashboardTable(guruList) {
+            var tbody = document.getElementById('dashboard-table-body');
+            if (!tbody) return;
+            if (!guruList || guruList.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-gray-400">Belum ada guru yang didaftarkan</td></tr>';
+                return;
+            }
+            tbody.innerHTML = guruList.map(function(g, idx) {
+                var isSelesai = g.status === 'Selesai';
+                var badgeClass = isSelesai ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800';
+                var badgeText = isSelesai ? '● Selesai' : '○ Belum Selesai';
+                return '<tr class="border-b hover:bg-gray-50">' +
+                    '<td class="p-3 text-center">' + (idx + 1) + '</td>' +
+                    '<td class="p-3">' + g.nama_guru + '</td>' +
+                    '<td class="p-3">' + (g.nip || '-') + '</td>' +
+                    '<td class="p-3">' + g.kelas_semester + '</td>' +
+                    '<td class="p-3">' + g.mata_pelajaran + '</td>' +
+                    '<td class="p-3 text-center"><span class="px-2 py-1 rounded-full text-xl font-bold ' + badgeClass + '">' + badgeText + '</span></td>' +
+                    '<td class="p-3 text-center">' +
+                        '<button onclick="selectGuru(' + g.id + ')" class="text-blue-600 hover:underline text-xl mr-2">Pilih</button>' +
+                        '<button onclick="deleteGuru(' + g.id + ')" class="text-red-600 hover:underline text-xl">Hapus</button>' +
+                    '</td></tr>';
+            }).join('');
+        }
+
+        function selectGuru(id) {
+            activeGuruId = id;
+            document.getElementById('guru_id_display').classList.remove('hidden');
+            document.getElementById('current_guru_id').innerText = id;
+            
+            // Aktifkan semua menu yang dibatasi
+            unlockMenus();
+
+            showModal('Guru ID ' + id + ' dipilih. Silakan lanjut ke instrumen supervisi.', 'Guru Dipilih', 'success');
+            
+            // Pindah langsung ke menu pertama pra-observasi
+            var targetBtn = document.querySelector('[onclick*="sup-admin"]');
+            nav('sup-admin', targetBtn);
+        }
+
+        function deleteGuru(id) {
+            showModalConfirm('Yakin ingin menghapus guru ini dan semua data supervisinya?', 'Hapus Guru', function() {
+                fetch('/api/guru/' + id, { method: 'DELETE' })
+                    .then(function() { loadDashboard(); showModal('Guru berhasil dihapus.', 'Berhasil', 'success'); });
+            });
+        }
+
+        // ===== API: IDENTITAS =====
+        async function submitIdentitas(e) {
+            e.preventDefault();
+            var payload = {
+                nama_guru: document.getElementById('guru_nama').value,
+                nip: document.getElementById('guru_nip') ? document.getElementById('guru_nip').value : '',
+                sekolah: document.getElementById('guru_sekolah').value,
+                jenjang: document.getElementById('guru_jenjang').value,
+                mata_pelajaran: document.getElementById('guru_mapel').value,
+                kelas_semester: document.getElementById('guru_kelas').value
+            };
+            try {
+                var res = await fetch('/api/guru', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) {
+                    var err = await res.json();
+                    showModal('Gagal menyimpan: ' + JSON.stringify(err.detail || err), 'Error', 'danger');
+                    return;
+                }
+                var data = await res.json();
+                activeGuruId = data.id;
+                document.getElementById('guru_id_display').classList.remove('hidden');
+                document.getElementById('current_guru_id').innerText = activeGuruId;
+                
+                // UNLOCK SEMUA MENU PILIHAN SETELAH IDENTITAS DISIMPAN
+                unlockMenus();
+
+                showModal('Identitas guru berhasil disimpan! ID: ' + activeGuruId + '. Seluruh menu instrumen kini telah dibuka.', 'Berhasil', 'success');
+                loadDashboard();
+            } catch (e) {
+                showModal('Gagal menghubungi server: ' + e.message, 'Error', 'danger');
+            }
+        }
+
+        // ===== API: INSTRUMEN =====
+        async function submitInstrumen(key) {
+            if (!activeGuruId) {
+                showModal('Silakan isi Identitas Guru terlebih dahulu!', 'Belum Ada Guru', 'warning');
+                return;
+            }
+
+            var data = instrumenData[key];
+            var uncheckedItems = [];
+
+            data.items.forEach(function(item, index) {
+                var name = 'ans-' + key + '-' + index;
+                var checked = document.querySelector('input[name="' + name + '"]:checked');
+                if (!checked) {
+                    uncheckedItems.push((index + 1) + '. ' + item);
+                }
+            });
+
+            if (uncheckedItems.length > 0) {
+                showModal('Masih ada item yang belum dipilih!\n\nSilakan lengkapi:\n' + uncheckedItems.join('\n'), 'Item Belum Lengkap', 'warning');
+                return;
+            }
+
+            var dataJawaban = {};
+            data.items.forEach(function(item, index) {
+                var checked = document.querySelector('input[name="ans-' + key + '-' + index + '"]:checked');
+                dataJawaban[index] = parseInt(checked.value);
+            });
+
+            var payload = {
+                guru_id: activeGuruId,
+                kategori: key,
+                data_jawaban: dataJawaban
+            };
+
+            try {
+                var res = await fetch('/api/supervisi', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    showModal('Penilaian ' + data.title + ' berhasil disimpan!', 'Berhasil', 'success');
+                    
+                    var pdfBtn = document.getElementById('pdf-btn-' + key);
+                    if (pdfBtn) {
+                        pdfBtn.disabled = false;
+                        pdfBtn.classList.remove('btn-pdf-disabled');
+                    }
+                } else {
+                    showModal('Gagal menyimpan penilaian.', 'Error', 'danger');
+                }
+            } catch (e) {
+                showModal('Error: ' + e.message, 'Error', 'danger');
+            }
+        }
+
+        // ===== API: REFLEKSI =====
+        async function submitRefleksi(e) {
+            e.preventDefault();
+            if (!activeGuruId) {
+                showModal('Identitas Guru belum diisi!', 'Perhatian', 'warning');
+                return;
+            }
+
+            var payload = {
+                guru_id: activeGuruId,
+                refleksi: document.getElementById('refleksi_text').value
+            };
+
+            try {
+                var res = await fetch('/api/refleksi', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.ok) {
+                    var data = await res.json();
+                    showModal('Refleksi berhasil disimpan! Umpan balik dan tindak lanjut sudah dibuat otomatis.', 'Berhasil', 'success');
+                    document.getElementById('umpan_balik_text').innerText = data.umpan_balik || 'Memproses...';
+                    document.getElementById('tindak_lanjut_text').innerText = data.tindak_lanjut || 'Memproses...';
+                } else {
+                    showModal('Gagal menyimpan refleksi.', 'Error', 'danger');
+                }
+            } catch (e) {
+                showModal('Error: ' + e.message, 'Error', 'danger');
+            }
+        }
+
+        // ===== API: KESIMPULAN =====
+        async function loadKesimpulan() {
+            try {
+                var res = await fetch('/api/kesimpulan-rekap');
+                if (res.ok) {
+                    var list = await res.json();
+                    var tbody = document.getElementById('kesimpulan-table-body');
+                    
+                    if (!list || list.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="20" class="p-4 text-center text-gray-400 border border-gray-300">Belum ada data supervisi guru</td></tr>';
+                        return;
+                    }
+
+                    tbody.innerHTML = list.map(function(item, idx) {
+                        return '<tr class="hover:bg-gray-50 text-center border-b border-gray-300">' +
+                            '<td class="p-2 border border-gray-300 font-bold">' + (idx + 1) + '</td>' +
+                            '<td class="p-2 border border-gray-300 text-left font-semibold">' + (item.nama_guru || '-') + '</td>' +
+                            '<td class="p-2 border border-gray-300">' + (item.nip || '-') + '</td>' +
+                            '<td class="p-2 border border-gray-300">' + (item.kelas_semester || '-') + '</td>' +
+                            
+                            // Administrasi
+                            '<td class="p-2 border border-gray-300">' + item.administrasi_skor + '</td>' +
+                            '<td class="p-2 border border-gray-300">' + item.administrasi_persen + '%</td>' +
+                            '<td class="p-2 border border-gray-300 font-semibold">' + item.administrasi_predikat + '</td>' +
+                            
+                            // ATP
+                            '<td class="p-2 border border-gray-300">' + item.atp_skor + '</td>' +
+                            '<td class="p-2 border border-gray-300">' + item.atp_persen + '%</td>' +
+                            '<td class="p-2 border border-gray-300 font-semibold">' + item.atp_predikat + '</td>' +
+                            
+                            // Modul Ajar
+                            '<td class="p-2 border border-gray-300">' + item.modul_ajar_skor + '</td>' +
+                            '<td class="p-2 border border-gray-300">' + item.modul_ajar_persen + '%</td>' +
+                            '<td class="p-2 border border-gray-300 font-semibold">' + item.modul_ajar_predikat + '</td>' +
+                            
+                            // Observasi
+                            '<td class="p-2 border border-gray-300">' + item.observasi_skor + '</td>' +
+                            '<td class="p-2 border border-gray-300">' + item.observasi_persen + '%</td>' +
+                            '<td class="p-2 border border-gray-300 font-semibold">' + item.observasi_predikat + '</td>' +
+                            
+                            // Pasca Observasi
+                            '<td class="p-2 border border-gray-300 text-left whitespace-pre-line min-w-[200px]">' + (item.refleksi || '-') + '</td>' +
+                            '<td class="p-2 border border-gray-300 text-left whitespace-pre-line min-w-[250px]">' + (item.umpan_balik || '-') + '</td>' +
+                            '<td class="p-2 border border-gray-300 text-left whitespace-pre-line min-w-[250px]">' + (item.tindak_lanjut || '-') + '</td>' +
+                            
+                            // Kesimpulan Narasi Otomatis
+                            '<td class="p-2 border border-gray-300 text-left leading-relaxed text-blue-900 bg-blue-50/50 font-medium">' + item.kesimpulan_narasi + '</td>' +
+                        '</tr>';
+                    }).join('');
+                }
+            } catch (e) {
+                console.error("Error loading kesimpulan rekap", e);
+            }
+        }
+
+        // ===== ON LOAD =====
+        window.onload = loadDashboard;
+    </script>
+
+    <!-- Modal Notification -->
+    <div id="modal-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center no-print" onclick="closeModal()">
+        <div class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden transform transition-all" onclick="event.stopPropagation()">
+            <div id="modal-header" class="px-6 py-4 flex items-center gap-3">
+                <span id="modal-icon" class="text-2xl">⚠️</span>
+                <h3 id="modal-title" class="text-xl font-bold text-gray-800">Perhatian</h3>
+            </div>
+            <div class="px-6 pb-4">
+                <p id="modal-message" class="text-xl text-gray-600 whitespace-pre-line leading-relaxed"></p>
+            </div>
+            <div class="px-6 pb-5 flex justify-end">
+                <button onclick="closeModal()" id="modal-btn" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold text-xl transition">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
