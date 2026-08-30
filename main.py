@@ -444,8 +444,14 @@ def get_kesimpulan_rekap(db: Session = Depends(get_db)):
         })
         
     return rekap_list
+from flask import Flask, jsonify
 
+app = Flask(__name__)  # Variabel ini HARUS bernama 'app'
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.route('/')
+def home():
+    return jsonify({"status": "Backend Supervisi Guru Berhasil Berjalan!"})
+
+# PERHATIKAN INI: Jangan biarkan app.run() mengeksekusi secara wajib di Vercel.
+if __name__ == '__main__':
+    app.run()
